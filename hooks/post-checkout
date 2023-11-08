@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# Updates the state of a Linear issue when a new branch is created to "In Progress"
+
+# this is a file checkout – do nothing
+if [ "$3" == "0" ]; then exit; fi
+
+BRANCH_NAME=$(git symbolic-ref --short -q HEAD)
+
+request() {
+    payload=$1
+
+    linear_api_key=$(git config --get linear.apikey)
+    if [ "$linear_api_key" = "" ]; then
+        echo "No Linear API key found. Please run 'git config --global linear.apikey <your-api-key>'"
+        echo "You can find your API key at https://linear.app/settings/api under 'Personal API key'"
+        exit
+    fi
+
+    result=$(curl \
+        --silent \
+        --show-error \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: $linear_api_key" \
+        --data "$payload" \
+        https://api.linear.app/graphql)
+
+    echo "$result"
+}
+
+get_state_id() {
+    issue_id=$1
+
+	query='query States($term: String!, $filter: WorkflowStateFilter) {\n searchIssues(term: $term) {\n nodes {\n team {\n states(filter: $filter) {\n nodes {\n id\n }\n }\n }\n }\n }\n}'
+	variables='{"term":"'$issue_id'","filter":{"name":{"eq":"In Progress"}}}'
+
+    payload='{"query": "'$query'", "variables": '$variables'}'
+    result=$(request "$payload")
+    state_id=$(echo "$result" | jq -r '.data.searchIssues.nodes[0].team.states.nodes[0].id')
+
+    echo "$state_id"
+}
+
+change_state() {
+    issue_id=$(echo "$BRANCH_NAME" | cut -d'/' -f 2)
+
+    state_id=$(get_state_id "$issue_id")
+	query='mutation Mutation($input: IssueUpdateInput!, $issueUpdateId: String!) {\n  issueUpdate(input: $input, id: $issueUpdateId) {\n    success\n  }\n}'
+	variables='{"input":{"stateId":"'$state_id'"},"issueUpdateId":"'$issue_id'"}'
+
+    payload='{"query": "'$query'", "variables": {"input": {"stateId": "'$state_id'"}, "issueUpdateId": "'$issue_id'"}}'
+    result=$(request "$payload")
+
+	if [[ $result =~ "userPresentableMessage" ]]; then
+		echo "$result" | jq -r '.errors[0].extensions.userPresentableMessage'
+		exit
+	fi
+
+	echo "Issue $issue_id moved to 'In Progress'"
+}
+
+#if the refs of the previous and new heads are the same 
+#AND the number of checkouts equals one, a new branch has been created
+NUM_CHECKOUTS=$(git reflog --date=local | grep -o "$BRANCH_NAME" | wc -l)
+if [ "$1" == "$2"  ] && [ "$NUM_CHECKOUTS" -eq 1 ]; then
+    # branch name is in the format "feature/<team>-1234"
+    if [[ ! $BRANCH_NAME =~ ^feature\/[a-z]+-[0-9]+$ ]]; then exit; fi
+
+    change_state
+fi

@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# check_for checks if the given regex is present in the staged files
+function check_for {
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+
+    # the condition should pass if the regex matches, but the line starts with a dash
+    CONDITION="^[^-].*$1"
+    if [ $(git diff --staged -G"$CONDITION" --name-only | wc -l) -gt 0 ]; then
+        if [ -z "$2" ]; then
+            echo "You have $1 in your commit"
+        else
+            echo "You have $2 in your commit"
+        fi
+        exit 1
+    fi
+}
+
+check_for "^\s*FIt|FDescribe|XIt|XDescribe|FContext|XContext\(" "focused tests"
+check_for "//\s*TODO:" "TODOs"
+check_for "fmt\.Print" "fmt.Print"
+
+# check inside go.mod for "replace url => path" entries
+if [ $(git diff --staged go.mod | grep -c "replace") -gt 0 ]; then
+    echo "You have replace entries in your go.mod"
+    exit 1
+fi
+
+# Get full path to the directory containing this script
+SCRIPT_DIR=$(dirname $(readlink -f $0))
+
+# Get all go files changed since last commit, ignoring deleted files
+STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=d -- '*.go')
+
+for file in $STAGED_GO_FILES; do
+    # run revive linter
+    revive -formatter stylish -config $SCRIPT_DIR/../assets/revive.toml $file
+    LINTER_EXIT_CODE=$?
+    if [ $LINTER_EXIT_CODE -ne 0 ]; then
+        echo "Linter failed on file: $file"
+        exit $LINTER_EXIT_CODE
+    fi
+
+    # format the file and add it back to the commit
+    gofumpt -w $file
+    git add $file
+done
+
+# Run local pre-commit hook after this if this is not a symlink
+if [ ! -L $0 ]; then
+    $SCRIPT_DIR/scripts/run-local-hook.sh $(basename $0)
+fi

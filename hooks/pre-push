@@ -1,0 +1,31 @@
+#!/bin/bash
+
+protected_branch='main'
+current_branch=$(git symbolic-ref HEAD | sed -e 's,.*/\(.*\),\1,')
+
+if [ $protected_branch = $current_branch ]
+then
+    echo -en "\033[31mYou're about to push to $protected_branch, is that what you intended? [y|n] \033[0m"
+    echo -en "\033[1m"
+    read -n 1 -r < /dev/tty
+    echo -en "\033[0m"
+
+    echo
+    if echo $REPLY | grep -E '^[Nn]$' > /dev/null
+    then
+        exit 1
+    fi
+fi
+
+# Run test suite
+make test
+if [ $? -ne 0 ]; then
+    echo "Tests failed, aborting push"
+    exit 1
+fi
+
+# Run local pre-push hook after this if this is not a symlink
+# FIXME: not working for global hooks path
+# if [ ! -L $0 ]; then
+#     $SCRIPT_DIR/run-local-hook.sh $(basename $0)
+# fi
