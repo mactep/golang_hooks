@@ -35,4 +35,4 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 # link the hooks
 ln -f -s $SCRIPT_DIR/hooks/pre-commit $DIRECTORY/.git/hooks/pre-commit
 ln -f -s $SCRIPT_DIR/hooks/pre-push $DIRECTORY/.git/hooks/pre-push
-ln -f -s $SCRIPT_DIR/hooks/post-checkout $DIRECTORY/.git/hooks/post-checkout
+# ln -f -s $SCRIPT_DIR/hooks/post-checkout $DIRECTORY/.git/hooks/post-checkout
