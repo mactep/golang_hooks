@@ -34,22 +34,36 @@ fi
 # Get full path to the directory containing this script
 SCRIPT_DIR=$(dirname $(readlink -f $0))
 
-# Get all go files changed since last commit, ignoring deleted files
-STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=d -- '*.go')
+# Get all go files changed since last commit, ignoring deleted files and  files
+# inside "generated" directory
+STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E "\.go$" | grep -v "generated")
+echo "$STAGED_GO_FILES"
 
+echo -n "Checking revive... "
+revive -formatter stylish -config $SCRIPT_DIR/../assets/revive.toml $STAGED_GO_FILES
+LINTER_EXIT_CODE=$?
+if [ $LINTER_EXIT_CODE -ne 0 ]; then
+    exit $LINTER_EXIT_CODE
+fi
+echo "OK"
+
+# the files need to be in the same directory, so we run one by one
+echo -n "Checking nilaway... "
 for file in $STAGED_GO_FILES; do
-    # run revive linter
-    revive -formatter stylish -config $SCRIPT_DIR/../assets/revive.toml $file
-    LINTER_EXIT_CODE=$?
-    if [ $LINTER_EXIT_CODE -ne 0 ]; then
-        echo "Linter failed on file: $file"
-        exit $LINTER_EXIT_CODE
-    fi
-
-    # format the file and add it back to the commit
-    gofumpt -w $file
-    git add $file
+	nilaway $file
+	NILAWAY_EXIT_CODE=$?
+	if [ $NILAWAY_EXIT_CODE -ne 0 ]; then
+		exit $NILAWAY_EXIT_CODE
+	fi
 done
+echo "OK"
+
+# format the file and add it back to the commit
+echo -n "Formatting with gofumpt... "
+gofumpt -w $STAGED_GO_FILES
+echo "OK"
+# TODO: stage only specific ranges
+# git add $STAGED_GO_FILES
 
 # Run local pre-commit hook after this if this is not a symlink
 if [ ! -L $0 ]; then
