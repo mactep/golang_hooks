@@ -6,21 +6,24 @@ function check_for {
         exit 1
     fi
 
-    # the condition should pass if the regex matches, but the line starts with a dash
-    CONDITION="^[^-].*$1"
-    if [ $(git diff --staged -G"$CONDITION" --name-only | wc -l) -gt 0 ]; then
-        if [ -z "$2" ]; then
-            echo "You have $1 in your commit"
-        else
-            echo "You have $2 in your commit"
-        fi
+    # the error message is the last argument
+    ERROR_MESSAGE=${@: -1}
+
+    # CONDITION is an or of all arguments except the last one, in lines that
+    # starts with + (added lines)
+    # concatenate all arguments except the last one with | in between
+    CONDITION=$(echo "${@:1:$(($#-1))}" | sed 's/ /\\|/g')
+
+    if [ "$(git diff --staged -U0 | grep -c "$CONDITION")" -gt 0 ]; then
+        echo "You have $ERROR_MESSAGE in your commit"
         exit 1
     fi
 }
 
-check_for "^\s*FIt|FDescribe|XIt|XDescribe|FContext|XContext\(" "focused tests"
+check_for "F\(It\|Describe\|Context\)" "focus tests"
+check_for "X\(It\|Describe\|Context\)" "excluded tests"
 check_for "//\s*TODO:" "TODOs"
-check_for "fmt\.Print" "fmt.Print"
+check_for "Print\(ln\|f\)\?" "print statements"
 
 # check inside go.mod for "replace url => path" entries
 if [ $(git diff --staged go.mod | grep -c "replace") -gt 0 ]; then
