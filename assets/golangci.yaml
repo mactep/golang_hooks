@@ -1,0 +1,14 @@
+run:
+  tests: true
+  skip-dirs:
+    - internal/generated$
+    - tests/mocks$
+  fast: false
+
+linters:
+  enable:
+    - gofumpt
+    - revive
+  presets:
+    - bugs
+    - complexity

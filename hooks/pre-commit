@@ -31,39 +31,57 @@ if [ $(git diff --staged go.mod | grep -c "replace") -gt 0 ]; then
     exit 1
 fi
 
+# speed up nilaway by only checking files that have been changed
+for arg in "$@"; do
+    if [ "$arg" == "--fast" ]; then
+        FAST_MODE=1
+    fi
+done
+
 # Get full path to the directory containing this script
 SCRIPT_DIR=$(dirname $(readlink -f $0))
 
-# Get all go files changed since last commit, ignoring deleted files and  files
-# inside "generated" directory
-STAGED_GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E "\.go$" | grep -v "generated")
-echo "$STAGED_GO_FILES"
+LINTER_CONFIG=$SCRIPT_DIR/../assets/golangci.yaml
+GOLANGCI_LINT="golangci-lint run -c $LINTER_CONFIG --fix --new-from-rev HEAD"
 
-echo -n "Checking revive... "
-revive -formatter stylish -config $SCRIPT_DIR/../assets/revive.toml $STAGED_GO_FILES
-LINTER_EXIT_CODE=$?
-if [ $LINTER_EXIT_CODE -ne 0 ]; then
-    exit $LINTER_EXIT_CODE
+echo -n "Running golangci-lint... "
+$GOLANGCI_LINT
+if [ $? -ne 0 ]; then
+    echo "FAIL"
+    exit 1
 fi
 echo "OK"
 
-# the files need to be in the same directory, so we run one by one
-echo -n "Checking nilaway... "
-for file in $STAGED_GO_FILES; do
-	nilaway $file
-	NILAWAY_EXIT_CODE=$?
-	if [ $NILAWAY_EXIT_CODE -ne 0 ]; then
-		exit $NILAWAY_EXIT_CODE
-	fi
-done
-echo "OK"
+# Get all go files changed since last commit, ignoring deleted files and files
+# inside "generated" directory
+STAGED_GO_FILES=$(git diff --staged --name-only --diff-filter=ACM | grep -E "\.go$" | grep -v "generated")
+echo "$STAGED_GO_FILES"
 
-# format the file and add it back to the commit
-echo -n "Formatting with gofumpt... "
-gofumpt -w $STAGED_GO_FILES
+NILAWAY_FILES=$(echo $STAGED_GO_FILES | sed 's/ /,/g')
+
+NILAWAY_SPEDUP_ARGS=(
+    -include-pkgs="github.com/getalternative/"
+    -exclude-pkgs="github.com/getalternative/${PWD##*/}/internal/generated,github.com/getalternative/${PWD##*/}/tests/mocks"
+)
+
+NILAWAY_CMD=(
+    nilaway
+    -include-errors-in-files="$NILAWAY_FILES"
+)
+
+# if the -fast flag is passed, add the sped up args to nilaway
+if [ $FAST_MODE ]; then
+    NILAWAY_CMD+=("${NILAWAY_SPEDUP_ARGS[@]}")
+fi
+
+echo -n "Checking nilaway... "
+"${NILAWAY_CMD[@]}" ./...
+
+if [ $? -ne 0 ]; then
+    echo "FAIL"
+    exit 1
+fi
 echo "OK"
-# TODO: stage only specific ranges
-# git add $STAGED_GO_FILES
 
 # Run local pre-commit hook after this if this is not a symlink
 if [ ! -L $0 ]; then
